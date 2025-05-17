@@ -2,9 +2,11 @@
 # for Magics
 
 # Build image
-ARG PYTHON_VERSION=3.7.7
-ARG ECCODES_VERSION=2.17.1
-FROM deutscherwetterdienst/python-eccodes:${PYTHON_VERSION}-${ECCODES_VERSION}-latest as build
+ARG PYTHON_VERSION=3.13.3
+ARG ECCODES_VERSION=2.41.0
+# FROM deutscherwetterdienst/python-eccodes:${PYTHON_VERSION}-${ECCODES_VERSION}-latest as build
+
+FROM python-eccodes:bleedingedge as build
 
 RUN set -ex \
     && apt-get update \
@@ -17,20 +19,21 @@ RUN set -ex \
       wget \
       file \
       flex \
-      g++-8 \
-      gcc-8 \
-      gfortran-8 \
+      g++-12 \
+      gcc-12 \
+      gfortran-12 \
       git \
       make \
       patch \
       sudo \
       swig \
-      xz-utils
+      xz-utils \
+      libxml2-dev
 
 RUN set -ex \
-    && ln -s /usr/bin/g++-8 /usr/bin/g++ \
-    && ln -s /usr/bin/gcc-8 /usr/bin/gcc \
-    && ln -s /usr/bin/gfortran-8 /usr/bin/gfortran
+    && ln -s /usr/bin/g++-12 /usr/bin/g++ \
+    && ln -s /usr/bin/gcc-12 /usr/bin/gcc \
+    && ln -s /usr/bin/gfortran-12 /usr/bin/gfortran
 
 # Install Climate Data Operator (CDO) with NetCDF, GRIB2 and HDF5 support
 # see https://code.mpimet.mpg.de/projects/cdo/embedded/index.html#x1-30001.1
@@ -43,7 +46,7 @@ RUN set -ex \
 
 # Install ZLIB from source
 # ZLIB source from https://zlib.net
-ARG ZLIB_VERSION=1.2.11
+ARG ZLIB_VERSION=1.3.1
 RUN set -ex \
     && mkdir -p /src \
     && cd /src \
@@ -52,34 +55,36 @@ RUN set -ex \
     && tar -xzvf zlib-${ZLIB_VERSION}.tar.gz \
     && cd zlib-${ZLIB_VERSION} \
     && ./configure --prefix /usr/local \
-    && make && make check && make install \
+    && make -j && make install \
     && /sbin/ldconfig
 
 # Install HDF5 from source
 # HDF5 source from https://github.com/live-clones/hdf5
-ARG HDF5_VERSION=hdf5-1_12_0
+ARG HDF5_VERSION=1.14.6
 RUN set -ex \
     && mkdir -p /src \
     && cd /src \
     && echo "Installing HDF5 version ${HDF5_VERSION} ..." \
-    && git clone https://github.com/live-clones/hdf5.git && cd hdf5 && git checkout ${HDF5_VERSION} \
+    && wget https://github.com/HDFGroup/hdf5/releases/download/hdf5_${HDF5_VERSION}/hdf5-${HDF5_VERSION}.tar.gz \
+    && tar -xzvf hdf5-${HDF5_VERSION}.tar.gz \
+    && cd hdf5-${HDF5_VERSION} \
     && ./configure \
         --prefix /usr/local \
         --with-zlib=/usr/local \
         --enable-threadsafe \
         --enable-unsupported \
           CFLAGS=-fPIC \
-    && make && make check && make install \
+    && make -j && make install \
     && /sbin/ldconfig
 
 # Install NetCDF from source
 # NetCDF source from http://www.unidata.ucar.edu/downloads/netcdf/index.jsp
-ARG NETCDF_VERSION=4.7.4
+ARG NETCDF_VERSION=4.9.3
 RUN set -ex \
     && mkdir -p /src \
     && cd /src \
     && echo "Installing NetCDF version ${NETCDF_VERSION} ..." \
-    && wget https://www.unidata.ucar.edu/downloads/netcdf/ftp/netcdf-c-${NETCDF_VERSION}.tar.gz \
+    && wget https://downloads.unidata.ucar.edu/netcdf-c/${NETCDF_VERSION}/netcdf-c-${NETCDF_VERSION}.tar.gz \
     && tar -xf netcdf-c-${NETCDF_VERSION}.tar.gz \
     && cd netcdf-c-${NETCDF_VERSION} \
     && CPPFLAGS=-I/usr/local/include LDFLAGS=-L/usr/local/lib \
@@ -89,12 +94,12 @@ RUN set -ex \
         --with-zlib=/usr/local \
         --enable-netcdf-4 \
           CFLAGS=-fPIC \
-    && make && make check && make install \
+    && make -j && make install \
     && /sbin/ldconfig
 
 # Install JasPer from source
 # JasPer source from https://github.com/mdadams/jasper
-ARG JASPER_VERSION=version-2.0.16
+ARG JASPER_VERSION=2.0.33
 ARG JASPER_SOURCE_DIR=./
 ARG JASPER_BUILD_DIR=/src/jasper/release
 ARG JASPER_INSTALL_DIR=/usr/local
@@ -102,25 +107,31 @@ RUN set -ex \
     && mkdir -p /src \
     && cd /src \
     && echo "Installing JasPer version ${JASPER_VERSION} ..." \
-    && git clone https://github.com/mdadams/jasper.git && cd jasper && git checkout ${JASPER_VERSION} \
+    && wget https://github.com/jasper-software/jasper/archive/refs/tags/version-${JASPER_VERSION}.tar.gz \
+    && tar -xf version-${JASPER_VERSION}.tar.gz \
+    && cd jasper-version-${JASPER_VERSION} \
     && mkdir -p ${JASPER_BUILD_DIR} \
     && cmake -G "Unix Makefiles" \
         -H${JASPER_SOURCE_DIR} \
         -B${JASPER_BUILD_DIR} \
         -DCMAKE_INSTALL_PREFIX=${JASPER_INSTALL_DIR} \
         -DCMAKE_BUILD_TYPE=Release \
-    && cd release \
-    && make clean all && make install \
+    && cd ${JASPER_BUILD_DIR} \
+    && make -j clean all && make install \
     && /sbin/ldconfig
+
+RUN set -ex \
+    && apt-get install --yes --no-install-suggests --no-install-recommends \
+      cpp
 
 # Install CDO
 # CDO source code from https://code.mpimet.mpg.de/projects/cdo/files
-ARG CDO_VERSION=1.9.8
+ARG CDO_VERSION=2.5.1
 RUN set -ex \
     && mkdir -p /src \
     && cd /src \
     && echo "Installing CDO version ${CDO_VERSION} ..." \
-    && wget https://code.mpimet.mpg.de/attachments/download/20826/cdo-${CDO_VERSION}.tar.gz \
+    && wget https://code.mpimet.mpg.de/attachments/download/29864/cdo-${CDO_VERSION}.tar.gz \
     && tar -xf cdo-${CDO_VERSION}.tar.gz \
     && cd cdo-${CDO_VERSION} \
     && ./configure --prefix /usr/local CFLAGS=-fPIC  \
@@ -149,6 +160,8 @@ RUN set -ex \
       libcurl4-gnutls-dev \
       libopenjp2-7 \
       libgomp1 \
+      libaec0 \
+      libxml2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy CDO and associated libraries
